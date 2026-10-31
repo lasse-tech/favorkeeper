@@ -1,0 +1,8 @@
+<Bindings>
+    <Binding name="FAVORKEEPER_TOGGLE_TRACKER" category="BINDING_CATEGORY_FAVORKEEPER">
+        Favorkeeper_Binding("tracker")
+    </Binding>
+    <Binding name="FAVORKEEPER_TOGGLE_FACTIONS" category="BINDING_CATEGORY_FAVORKEEPER">
+        Favorkeeper_Binding("factions")
+    </Binding>
+</Bindings>

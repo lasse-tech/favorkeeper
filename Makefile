@@ -1,0 +1,390 @@
+ADDON       := Favorkeeper
+FLAVOR      ?= _retail_
+
+# One folder serves every flavor: the client picks the TOC whose suffix matches,
+# so all three ship together and the version is read from whichever is canonical.
+TOCS        := $(ADDON)_Mainline.toc $(ADDON)_Mists.toc $(ADDON)_Vanilla.toc
+VERSION     := $(shell sed -n 's/^## Version: //p' $(ADDON)_Mainline.toc)
+
+INSTALL_FILES := $(TOCS) embeds.xml Bindings.xml CHANGELOG.md LICENSE
+INSTALL_DIRS  := Core UI Data Locales Skin Media
+KEEP_LIBS     := LibStub CallbackHandler-1.0 LibDataBroker-1.1 LibDBIcon-1.0 LibElvUIPlugin-1.0
+
+DIST_DIR := dist
+ZIP      := $(DIST_DIR)/$(ADDON)-$(VERSION).zip
+
+GITHUB_URL := git@github.com:lasse-tech/favorkeeper.git
+
+# TAG: release tag make github exports
+TAG ?= v$(VERSION)
+
+# DRY_RUN: 1 = make github commits in dist/github, pushes nothing
+DRY_RUN ?= 0
+
+# public export: one commit per release tag; design/, tests/ and CLAUDE.md stay on Forgejo
+PUBLIC_DIR   := $(DIST_DIR)/public
+PUBLIC_PATHS := $(INSTALL_FILES) $(INSTALL_DIRS) Libs/README.md README.md .pkgmeta github Makefile Makefile.bat \
+	.luacheckrc tools/check-compendium.lua .gitignore
+PUBLIC_NAME  := Lars Gossard
+PUBLIC_EMAIL := lars@lasse-tech.de
+
+WOW_CANDIDATES := \
+	"$$PROGRAMFILES/World of Warcraft" \
+	"C:/Program Files (x86)/World of Warcraft" \
+	"C:/Program Files/World of Warcraft" \
+	"D:/World of Warcraft" \
+	"C:/Games/World of Warcraft"
+
+# WOW_RETAIL_ADDON_FOLDER points straight at Interface/AddOns and skips the search.
+# It only names the retail folder, so a FLAVOR override falls back to WOW_DIR and
+# auto-detection. Every client sits next to _retail_ in one WoW folder, though, so
+# the last candidate is the folder three levels above it - which is what finds the
+# Classic clients under a Wine prefix, where none of the Windows paths exist.
+ifeq ($(FLAVOR),_retail_)
+ADDONS_DIR ?= $(WOW_RETAIL_ADDON_FOLDER)
+endif
+
+FIND_WOW = if [ -n "$(WOW_DIR)" ]; then echo "$(WOW_DIR)"; else \
+	retail_root=""; \
+	if [ -n "$(WOW_RETAIL_ADDON_FOLDER)" ]; then retail_root=$$(dirname "$$(dirname "$$(dirname "$(WOW_RETAIL_ADDON_FOLDER)")")"); fi; \
+	for d in $(WOW_CANDIDATES) "$$retail_root"; do if [ -n "$$d" ] && [ -d "$$d/$(FLAVOR)" ]; then echo "$$d"; break; fi; done; fi
+
+FIND_ADDONS = if [ -n "$(ADDONS_DIR)" ]; then echo "$(ADDONS_DIR)"; else wow=$$($(FIND_WOW)); if [ -n "$$wow" ]; then echo "$$wow/$(FLAVOR)/Interface/AddOns"; fi; fi
+
+NO_ADDONS_MSG = echo "AddOns folder not found. Set WOW_RETAIL_ADDON_FOLDER=/path/to/Interface/AddOns, or pass WOW_DIR=/path/to/World of Warcraft"
+
+.DEFAULT_GOAL := help
+# Expansion -> (TOC suffix, client folder). "stage" builds one ready-to-copy folder
+# per expansion under dist/, each carrying only the TOC that expansion loads.
+FLAVOR_NAMES := Midnight Mists Vanilla
+FLAVOR_TOC_Midnight := Mainline
+FLAVOR_TOC_Mists    := Mists
+FLAVOR_TOC_Vanilla  := Vanilla
+FLAVOR_DIR_Midnight := _retail_
+FLAVOR_DIR_Mists    := _classic_
+FLAVOR_DIR_Vanilla  := _classic_era_
+
+.PHONY: help version check check-tocs check-compendium luacheck lint test libs fetch-libs ensure-libs debug install uninstall prune-libs stage dist deploy release public github clean distclean purge
+
+help:
+	@echo "$(ADDON) $(VERSION)"
+	@echo ""
+	@echo "  make check        syntax-check every Lua file"
+	@echo "  make check-tocs   verify the flavor TOCs only differ in ## Interface:"
+	@echo "  make check-compendium  verify the compendium data and its translation"
+	@echo "  make libs         report which embedded libraries are missing"
+	@echo "  make fetch-libs   download them into Libs/ (needs svn, and git for one)"
+	@echo "  make debug        link the working copy into the live client (edit, then /reload)"
+	@echo "  make install      copy the addon into the live WoW client"
+	@echo "  make uninstall    remove it again (SavedVariables are kept)"
+	@echo "  make prune-libs   drop installed libraries embeds.xml no longer lists"
+	@echo "  make stage        build dist/<expansion>/$(ADDON), ready to copy over"
+	@echo "  make dist         build $(ZIP)"
+	@echo "  make clean        remove build output"
+	@echo "  make distclean    clean + empty Libs/"
+	@echo "  make purge        uninstall + delete SavedVariables (needs CONFIRM=yes)"
+	@echo "  make lint         check + check-tocs + check-compendium + luacheck (any warning fails)"
+	@echo "  make deploy       explains how releases are published (tag push)"
+	@echo "  make release      print the commands that tag v$(VERSION) and push it to Forgejo"
+	@echo "  make public       build the public export of HEAD into $(PUBLIC_DIR)"
+	@echo "  make github       export TAG=$(TAG) to GitHub as one commit (DRY_RUN=1: push nothing)"
+	@echo "  make test         run tests/ in wow-ui-sim (WOW_UI_SIM=$(WOW_UI_SIM))"
+	@echo ""
+	@echo "  FLAVOR=$(FLAVOR)   _retail_ (Midnight), _classic_ (Mists), _classic_era_ (Vanilla)"
+	@echo "  WOW_RETAIL_ADDON_FOLDER  Interface/AddOns to install into (retail only)"
+	@echo "  WOW_DIR           override the auto-detected WoW folder"
+
+version:
+	@echo "$(VERSION)"
+
+check:
+	@files=$$(find Core UI Data Locales Skin -name '*.lua' | sort); \
+	if command -v luac >/dev/null 2>&1; then \
+		luac -p $$files && echo "luac: all files parse"; \
+	elif command -v lua >/dev/null 2>&1; then \
+		for f in $$files; do lua -e "assert(loadfile('$$f'))" || exit 1; done; \
+		echo "lua: all files parse"; \
+	elif python -c "import lupa" >/dev/null 2>&1; then \
+		python -c "import io,glob,sys,lupa; m=getattr(lupa,'luajit21',None) or getattr(lupa,'lua51',None) or lupa; L=m.LuaRuntime(); ld=L.eval('function(s,n) local f,e=load(s,n) if f then return true,0 end return false,tostring(e) end'); fs=sorted(glob.glob('Core/*.lua')+glob.glob('UI/*.lua')+glob.glob('Data/*.lua')+glob.glob('Locales/*.lua')+glob.glob('Skin/*.lua')); rs=[(f,)+tuple(ld(io.open(f,encoding='utf-8').read(),'@'+f)) for f in fs]; bad=[r for r in rs if not r[1]]; [print('FAIL',r[0],r[2]) for r in bad]; sys.exit(1) if bad else print('lupa: all files parse (' + str(len(fs)) + ')')"; \
+	else \
+		echo "no Lua available (install lua/luac, or 'pip install lupa') - skipped"; \
+	fi
+
+# The flavor TOCs carry the same file list three times over, so drift is the one
+# way this layout can rot. Compare everything but the Interface line.
+check-tocs:
+	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	ref=""; fail=0; \
+	for toc in $(TOCS); do \
+		grep -v '^## Interface:' "$$toc" > "$$tmp/$$toc"; \
+		if [ -z "$$ref" ]; then ref="$$toc"; \
+		elif ! diff -u "$$tmp/$$ref" "$$tmp/$$toc" > "$$tmp/d" 2>&1; then \
+			echo "  DRIFT   $$toc differs from $$ref beyond ## Interface:"; \
+			sed '1,2d; s/^/          /' "$$tmp/d"; \
+			fail=1; \
+		fi; \
+	done; \
+	if [ $$fail -eq 1 ]; then exit 1; fi; \
+	echo "tocs: $(words $(TOCS)) flavors agree"
+	@missing=0; \
+	for f in $$(sed -n 's/\r$$//; s|\\|/|g; /^[A-Za-z].*\.\(lua\|xml\)$$/p' $(ADDON)_Mainline.toc); do \
+		[ -f "$$f" ] || { echo "  MISSING $$f (listed in the TOC)"; missing=1; }; \
+	done; \
+	if [ $$missing -eq 1 ]; then exit 1; fi; \
+	echo "tocs: every listed file exists"
+
+# The compendium is data, and data rots quietly: this reads both language files
+# and fails on an unknown tag, an over-long line or any drift between them.
+check-compendium:
+	@if command -v lua5.1 >/dev/null 2>&1; then lua5.1 tools/check-compendium.lua .; \
+	elif command -v lua >/dev/null 2>&1; then lua tools/check-compendium.lua .; \
+	else echo "no Lua available (install lua5.1) - skipped"; fi
+
+# Warnings are errors: luacheck exits non-zero on any warning, and so does lint.
+luacheck:
+	@command -v luacheck >/dev/null 2>&1 || { echo "luacheck not found - install it (luarocks install luacheck)"; exit 1; }
+	@luacheck --no-color -q . && echo "luacheck: no warnings"
+
+lint: check check-tocs check-compendium luacheck
+
+libs:
+	@missing=0; \
+	for lib in $$(tr '\134' '/' < embeds.xml | sed -n 's|.*Libs/\([^/]*\)/.*|\1|p' | sort -u); do \
+		if [ -d "Libs/$$lib" ]; then echo "  ok      Libs/$$lib"; \
+		else echo "  MISSING Libs/$$lib"; missing=1; fi; \
+	done; \
+	if [ $$missing -eq 1 ]; then \
+		echo ""; \
+		echo "Run 'make fetch-libs' to download them, or see Libs/README.md."; \
+		echo "install, debug, stage, dist and test fetch them on their own."; \
+	fi
+
+# .pkgmeta stays the single source for what to fetch and from where - the CI
+# packager reads the same file, so hardcoding the URLs here would only invite
+# drift. CurseForge serves SVN; LibDataBroker-1.1 lives in tekkub's git repo.
+# awk walks the externals block and prints "<path> <url>" per external; the
+# ignore block is filtered down to the entries that land inside Libs/.
+AWK_EXTERNALS := /^externals:/{e=1;next} /^[a-zA-Z]/{e=0} e&&/^  [^ \#]/{sub(/:$$/,"",$$1);p=$$1;next} e&&p&&$$1=="url:"{print p, $$2; p=""}
+
+fetch-libs:
+	@command -v svn >/dev/null 2>&1 || { echo "svn not found - needed for the CurseForge externals"; exit 1; }
+	@command -v git >/dev/null 2>&1 || { echo "git not found - needed for LibDataBroker-1.1"; exit 1; }
+	@awk '$(AWK_EXTERNALS)' .pkgmeta | while read -r path url; do \
+		[ -n "$$path" ] && [ -n "$$url" ] || continue; \
+		rm -rf "$$path"; \
+		case "$$url" in \
+			*github.com*) \
+				git clone -q --depth 1 "$$url" "$$path.tmp" || exit 1; \
+				rm -rf "$$path.tmp/.git"; \
+				mv "$$path.tmp" "$$path";; \
+			*) \
+				svn export -q --force --non-interactive --trust-server-cert "$$url" "$$path" || exit 1;; \
+		esac; \
+		echo "  fetched $$path"; \
+	done
+	@sed -n '/^ignore:/,$$p' .pkgmeta | sed -n 's|^  - \(Libs/[^/]*/.*\)$$|\1|p' | while read -r p; do \
+		if [ -e "$$p" ]; then echo "  dropping $$p (.pkgmeta ignores it)"; rm -rf "$$p"; fi; \
+	done
+	@find Libs -name .pkgmeta -delete 2>/dev/null; true
+	@$(MAKE) --no-print-directory libs
+
+# Every target that puts the addon somewhere loadable needs the libraries that
+# embeds.xml lists; without them the client reports one Lua warning per missing
+# file. Libs/ is not versioned, so a fresh clone has none: fetch them instead
+# of installing a copy that cannot load.
+LIBS_MISSING = for lib in $$(tr '\134' '/' < embeds.xml | sed -n 's|.*Libs/\([^/]*\)/.*|\1|p' | sort -u); do \
+	[ -d "Libs/$$lib" ] || echo "$$lib"; done
+
+ensure-libs:
+	@if [ -n "$$($(LIBS_MISSING))" ]; then \
+		echo "Libs/ incomplete - fetching the libraries first"; \
+		$(MAKE) --no-print-directory fetch-libs || exit 1; \
+	fi
+	@missing=$$($(LIBS_MISSING)); \
+	if [ -n "$$missing" ]; then echo "still missing after fetch-libs:" $$missing; exit 1; fi
+
+install: ensure-libs
+	@addons=$$($(FIND_ADDONS)); \
+	if [ -z "$$addons" ]; then $(NO_ADDONS_MSG); exit 1; fi; \
+	target="$$addons/$(ADDON)"; \
+	echo "installing $(ADDON) $(VERSION) -> $$target"; \
+	mkdir -p "$$target"; \
+	for d in $(INSTALL_DIRS); do rm -rf "$$target/$$d"; cp -r "$$d" "$$target/"; done; \
+	for f in $(INSTALL_FILES); do rm -f "$$target/$$f"; cp "$$f" "$$target/"; done; \
+	mkdir -p "$$target/Libs"; cp -r Libs/. "$$target/Libs/"; rm -f "$$target/Libs/README.md"; \
+	for x in design .claude .git dist tests README.md CLAUDE.md .gitignore .luacheckrc .pkgmeta Makefile Makefile.bat; do \
+		if [ -e "$$target/$$x" ]; then \
+			echo "  removing stray $$x (not part of the addon)"; \
+			rm -rf "$$target/$$x"; \
+		fi; \
+	done; \
+	stale=""; \
+	for d in "$$target"/Libs/*/; do \
+		[ -d "$$d" ] || continue; \
+		name=$$(basename "$$d"); \
+		case " $(KEEP_LIBS) " in *" $$name "*) ;; *) stale="$$stale $$name";; esac; \
+	done; \
+	if [ -n "$$stale" ]; then \
+		echo "  stale libraries still installed:$$stale"; \
+		echo "  run 'make prune-libs' to remove them"; \
+	fi; \
+	echo "done - /reload in game"
+
+# Debug build: the addon folder in the client points back at this working copy,
+# so an edit here is live after a /reload. Libraries are copied, not linked, so
+# 'make distclean' here cannot break the client. 'make install' replaces the
+# links with a plain copy again.
+debug: ensure-libs
+	@addons=$$($(FIND_ADDONS)); \
+	if [ -z "$$addons" ]; then $(NO_ADDONS_MSG); exit 1; fi; \
+	target="$$addons/$(ADDON)"; \
+	echo "linking $(ADDON) $(VERSION) (working copy) -> $$target"; \
+	mkdir -p "$$target"; \
+	for d in $(INSTALL_DIRS); do rm -rf "$$target/$$d"; ln -s "$(CURDIR)/$$d" "$$target/$$d"; done; \
+	for f in $(INSTALL_FILES); do rm -f "$$target/$$f"; ln -s "$(CURDIR)/$$f" "$$target/$$f"; done; \
+	rm -rf "$$target/Libs"; mkdir -p "$$target/Libs"; cp -r Libs/. "$$target/Libs/"; rm -f "$$target/Libs/README.md"; \
+	echo "done - /reload in game after each edit"
+
+uninstall:
+	@addons=$$($(FIND_ADDONS)); \
+	if [ -z "$$addons" ]; then $(NO_ADDONS_MSG); exit 1; fi; \
+	target="$$addons/$(ADDON)"; \
+	if [ ! -d "$$target" ]; then echo "not installed: $$target"; exit 0; fi; \
+	rm -rf "$$target"; \
+	echo "removed $$target"; \
+	echo "SavedVariables kept - use 'make purge CONFIRM=yes' to delete those too"
+
+prune-libs:
+	@addons=$$($(FIND_ADDONS)); \
+	if [ -z "$$addons" ]; then $(NO_ADDONS_MSG); exit 1; fi; \
+	target="$$addons/$(ADDON)"; \
+	[ -d "$$target/Libs" ] || { echo "nothing installed"; exit 0; }; \
+	for d in "$$target"/Libs/*/; do \
+		[ -d "$$d" ] || continue; \
+		name=$$(basename "$$d"); \
+		case " $(KEEP_LIBS) " in \
+			*" $$name "*) ;; \
+			*) echo "  removing $$name"; rm -rf "$$d";; \
+		esac; \
+	done; \
+	echo "done"
+
+stage: ensure-libs
+	@for name in $(FLAVOR_NAMES); do rm -rf "$(DIST_DIR)/$$name"; done
+	@$(foreach name,$(FLAVOR_NAMES), \
+		name="$(name)"; toc="$(FLAVOR_TOC_$(name))"; clientdir="$(FLAVOR_DIR_$(name))"; \
+		out="$(DIST_DIR)/$(name)/$(ADDON)"; \
+		mkdir -p "$$out"; \
+		for d in $(INSTALL_DIRS) Libs; do cp -r "$$d" "$$out/"; done; \
+		cp embeds.xml Bindings.xml CHANGELOG.md LICENSE "$$out/"; \
+		cp "$(ADDON)_$$toc.toc" "$$out/"; \
+		rm -f "$$out/Libs/README.md" "$$out/Media/README.md"; \
+		printf "  %-10s %-32s -> %s\n" "$$name" "$(DIST_DIR)/$(name)/$(ADDON)" \
+			"$$clientdir/Interface/AddOns/"; \
+	)
+	@echo ""
+	@echo "Copy each $(ADDON) folder into that client's Interface/AddOns."
+	@echo "Each folder carries only its own TOC, so it loads on that expansion alone."
+
+dist: ensure-libs
+	@rm -rf $(DIST_DIR)/$(ADDON); rm -f $(ZIP)
+	@mkdir -p $(DIST_DIR)/$(ADDON)
+	@for d in $(INSTALL_DIRS) Libs; do cp -r "$$d" $(DIST_DIR)/$(ADDON)/; done
+	@for f in $(INSTALL_FILES); do cp "$$f" $(DIST_DIR)/$(ADDON)/; done
+	@rm -f $(DIST_DIR)/$(ADDON)/Libs/README.md $(DIST_DIR)/$(ADDON)/Media/README.md
+	@if command -v zip >/dev/null 2>&1; then \
+		( cd $(DIST_DIR) && zip -qr "$(ADDON)-$(VERSION).zip" $(ADDON) ); \
+	elif command -v tar >/dev/null 2>&1; then \
+		tar -a -c -f "$(ZIP)" -C "$(DIST_DIR)" "$(ADDON)"; \
+	else \
+		echo "  warning: no zip/tar, falling back to Compress-Archive"; \
+		echo "  (that writes backslash paths - fine on Windows, not for uploads)"; \
+		powershell -NoProfile -Command \
+			"Compress-Archive -Path '$(DIST_DIR)/$(ADDON)' -DestinationPath '$(ZIP)' -Force"; \
+	fi
+	@rm -rf $(DIST_DIR)/$(ADDON)
+	@echo "built $(ZIP)"
+
+# Runs tests/*.lua inside wow-ui-sim (https://github.com/Osso/wow-ui-sim), a
+# headless WoW client that loads the real Blizzard UI. The simulator resolves
+# test addons next to its own binary, so the addon, TestFramework and a hardlink
+# of the binary are staged together under dist/sim. No WoW install is scanned:
+# WOW_SIM_WOW_PATH stays unset, so neither live addons nor SavedVariables leak in.
+WOW_UI_SIM ?= $(HOME)/git/wow-ui-sim
+SIM_BIN    ?= $(WOW_UI_SIM)/target/release/wow-sim
+SIM_DIR    := $(DIST_DIR)/sim
+
+test: ensure-libs
+	@[ -x "$(SIM_BIN)" ] || { echo "wow-sim not found at $(SIM_BIN)"; \
+		echo "build it: cd $(WOW_UI_SIM) && cargo build --release --no-default-features --features casc,client-retail --bin wow-sim --bin wow-cli"; \
+		exit 1; }
+	@rm -rf "$(SIM_DIR)"
+	@out="$(SIM_DIR)/Interface/AddOns/$(ADDON)"; mkdir -p "$$out"; \
+	for d in $(INSTALL_DIRS) Libs tests; do cp -r "$$d" "$$out/"; done; \
+	cp embeds.xml Bindings.xml $(ADDON)_Mainline.toc "$$out/"; \
+	cp -r "$(WOW_UI_SIM)/Interface/AddOns/TestFramework" "$(SIM_DIR)/Interface/AddOns/"; \
+	ln -f "$(SIM_BIN)" "$(SIM_DIR)/wow-sim" 2>/dev/null || cp "$(SIM_BIN)" "$(SIM_DIR)/wow-sim"
+	@cd "$(SIM_DIR)" && env -u WOW_SIM_WOW_PATH ./wow-sim --no-saved-vars run-tests $(ADDON)
+
+# No web server behind an addon: a v* tag pushed to Forgejo (origin) is exported
+# to GitHub by .forgejo/workflows/github.yml (make github); the GitHub workflow
+# packages it. See design/RELEASING.md.
+deploy:
+	@echo "$(ADDON) is released by tag, not deployed:"
+	@echo "  1. move [Unreleased] in CHANGELOG.md to [$(VERSION)] and set ## Version: in all TOCs"
+	@echo "  2. git tag v$(VERSION) && git push origin main v$(VERSION)"
+	@echo "Forgejo exports the tag to GitHub, GitHub builds the release. See design/RELEASING.md."
+
+release:
+	@echo "git tag v$(VERSION) && git push origin main v$(VERSION)"
+
+# github/gitattributes: renamed on export (git archive would apply it to github/)
+# $(call public-tree,<ref>,<out dir>)
+define public-tree
+	rm -rf "$(2)" && mkdir -p "$(2)"
+	git archive "$(1)" $(PUBLIC_PATHS) | tar -x -C "$(2)"
+	cp -r "$(2)/github/." "$(2)/" && rm -r "$(2)/github"
+	mv "$(2)/gitattributes" "$(2)/.gitattributes"
+endef
+
+public:
+	$(call public-tree,HEAD,$(PUBLIC_DIR))
+	@cd $(PUBLIC_DIR) && find . -type f | sort
+
+github:
+	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "tag $(TAG) not found"; exit 1; }
+	@! git ls-remote --exit-code --tags $(GITHUB_URL) "refs/tags/$(TAG)" >/dev/null || { echo "$(TAG) is on GitHub already"; exit 1; }
+	$(call public-tree,$(TAG),$(PUBLIC_DIR))
+	rm -rf $(DIST_DIR)/github && git clone -q $(GITHUB_URL) $(DIST_DIR)/github
+	@cd $(DIST_DIR)/github && git checkout -q -B main \
+		&& find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} + \
+		&& cp -r ../public/. . && git add -A \
+		&& GIT_AUTHOR_NAME="$(PUBLIC_NAME)" GIT_AUTHOR_EMAIL="$(PUBLIC_EMAIL)" \
+		GIT_COMMITTER_NAME="$(PUBLIC_NAME)" GIT_COMMITTER_EMAIL="$(PUBLIC_EMAIL)" \
+		git commit -qm "$(ADDON) $(TAG:v%=%)" && git tag "$(TAG)" \
+		&& git show --format="%h %s" --stat=100 HEAD | sed '$$d'
+	@if [ "$(DRY_RUN)" = "1" ]; then echo "DRY_RUN=1: nothing pushed, see $(DIST_DIR)/github"; \
+	else cd $(DIST_DIR)/github && git push -q origin main "refs/tags/$(TAG)" && echo "pushed $(TAG) to GitHub"; fi
+
+clean:
+	@rm -rf $(DIST_DIR)
+	@echo "cleaned"
+
+distclean: clean
+	@find Libs -mindepth 1 -maxdepth 1 ! -name README.md -exec rm -rf {} +
+	@echo "emptied Libs/"
+
+purge:
+	@if [ "$(CONFIRM)" != "yes" ]; then \
+		echo "refusing to delete SavedVariables without CONFIRM=yes"; \
+		echo "   make purge CONFIRM=yes"; exit 1; fi
+	@$(MAKE) --no-print-directory uninstall
+	@addons=$$($(FIND_ADDONS)); \
+	if [ -z "$$addons" ]; then $(NO_ADDONS_MSG); exit 1; fi; \
+	flavor_dir=$$(dirname "$$(dirname "$$addons")"); \
+	found=0; \
+	for f in "$$flavor_dir"/WTF/Account/*/SavedVariables/$(ADDON).lua*; do \
+		[ -e "$$f" ] || continue; \
+		echo "  deleting $$f"; rm -f "$$f"; found=1; \
+	done; \
+	[ $$found -eq 1 ] || echo "  no SavedVariables found"

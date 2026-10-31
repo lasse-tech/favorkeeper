@@ -1,0 +1,39 @@
+## Interface: 50504
+## Title: Favorkeeper
+## Notes: Reputation bars with level and percent, grouped the way Blizzard's reputation panel groups them.
+## Notes-deDE: Rufbalken mit Stufe und Prozent, gruppiert wie Blizzards Ruffenster.
+## Author: Lars Gossard
+## Version: 0.1.0
+## X-Email: lars@lasse-tech.de
+## X-Website: https://github.com/lasse-tech/favorkeeper
+## X-Copyright: 2026 lasse tech, Lars Gossard
+## X-License: MIT
+## SavedVariables: FavorkeeperDB
+## IconTexture: Interface\AddOns\Favorkeeper\Media\Favorkeeper
+
+embeds.xml
+
+Locales\Locale.lua
+Locales\enUS.lua
+Locales\deDE.lua
+
+Core\Addon.lua
+Core\Compat.lua
+Core\Database.lua
+Core\Factions.lua
+Core\Compendium.lua
+Core\Learned.lua
+Core\WorldQuests.lua
+Core\Core.lua
+
+Data\Compendium.lua
+Data\Compendium_deDE.lua
+
+UI\Bars.lua
+UI\Tracker.lua
+UI\FactionList.lua
+UI\Compendium.lua
+UI\Options.lua
+UI\Options.xml
+
+Skin\ElvUI.lua

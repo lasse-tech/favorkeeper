@@ -1,0 +1,39 @@
+package-as: Favorkeeper
+
+# Release notes come from CHANGELOG.md instead of a generated git log.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+externals:
+  Libs/LibStub:
+    url: https://repos.curseforge.com/wow/libstub/trunk
+    tag: latest
+  Libs/CallbackHandler-1.0:
+    url: https://repos.curseforge.com/wow/callbackhandler/trunk/CallbackHandler-1.0
+  # CurseForge's SVN mirror for this one answers HTTP 500, so it comes from
+  # tekkub's repository, which is where the library is actually maintained.
+  Libs/LibDataBroker-1.1:
+    url: https://github.com/tekkub/libdatabroker-1-1
+  Libs/LibDBIcon-1.0:
+    url: https://repos.curseforge.com/wow/libdbicon-1-0/trunk/LibDBIcon-1.0
+  # LibElvUIPlugin-1.0 is not embedded: it requires ElvUI to load, and ElvUI
+  # registers it with LibStub. Skin\ElvUI.lua resolves it at runtime via LibStub.
+
+move-folders:
+  Favorkeeper/Favorkeeper: Favorkeeper
+
+ignore:
+  - design
+  - tools
+  - README.md
+  - CLAUDE.md
+  - Makefile
+  - Makefile.bat
+  - tests
+  - .luacheckrc
+  - Libs/README.md
+  - Media/README.md
+  # Paths inside externals: release.sh re-parses this list after fetching them.
+  - Libs/LibStub/tests
+  - Libs/LibDataBroker-1.1/README.textile
