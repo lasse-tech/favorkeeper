@@ -3,9 +3,10 @@
 ## Notes: Reputation bars with level and percent, grouped the way Blizzard's reputation panel groups them.
 ## Notes-deDE: Rufbalken mit Stufe und Prozent, gruppiert wie Blizzards Ruffenster.
 ## Author: Lars Gossard
-## Version: 0.1.0
+## Version: 0.1.1
 ## X-Email: lars@lasse-tech.de
 ## X-Website: https://github.com/lasse-tech/favorkeeper
+## X-Donate: https://buymeacoffee.com/gossardla
 ## X-Copyright: 2026 lasse tech, Lars Gossard
 ## X-License: MIT
 ## SavedVariables: FavorkeeperDB

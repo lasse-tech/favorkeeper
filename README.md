@@ -142,6 +142,10 @@ tools/     check-compendium.lua, run by `make lint` (not shipped)
 tests/     wow-ui-sim tests (not shipped, not on GitHub)
 ```
 
+## Support
+
+[Buy me a coffee](https://buymeacoffee.com/gossardla)
+
 ## Licence and credits
 
 © 2026 lasse tech, Lars Gossard — <lars@lasse-tech.de>
