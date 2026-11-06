@@ -1,9 +1,9 @@
-## Interface: 120100
+## Interface: 120105
 ## Title: Favorkeeper
 ## Notes: Reputation bars with level and percent, grouped the way Blizzard's reputation panel groups them.
 ## Notes-deDE: Rufbalken mit Stufe und Prozent, gruppiert wie Blizzards Ruffenster.
 ## Author: Lars Gossard
-## Version: 0.1.1
+## Version: 0.2.0
 ## X-Email: lars@lasse-tech.de
 ## X-Website: https://github.com/lasse-tech/favorkeeper
 ## X-Donate: https://buymeacoffee.com/gossardla

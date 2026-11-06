@@ -9,14 +9,15 @@ expansion, then sub-group — and every group folds.
 Inspired by [Reputation Bars](https://www.curseforge.com/wow/addons/reputation-bars),
 built in the style of [Tallymaster](https://github.com/lasse-tech/tallymaster).
 
-Runs on **Midnight** (retail), **Mists Classic** and **Classic Era** from one folder.
+Runs on **Midnight** (retail), **World of Warcraft: Forever**, **Mists Classic** and
+**Classic Era** from one folder.
 Folder name and in-game title are both **Favorkeeper**.
 
 ## Installation
 Download the zip of the latest release from
 [GitHub releases](https://github.com/lasse-tech/favorkeeper/releases) and unpack it
-into `World of Warcraft/<client>/Interface/AddOns` (`_retail_`, `_classic_` or
-`_classic_era_`). The folder carries all three TOCs, so the same zip works in every
+into `World of Warcraft/<client>/Interface/AddOns` (`_retail_`, `_forever_`, `_classic_`
+or `_classic_era_`). The folder carries all four TOCs, so the same zip works in every
 client.
 
 ## Features
@@ -81,30 +82,34 @@ when the two files drift apart or a line grows too long for a tooltip.
 
 ## Flavor support
 
-| | Midnight | Mists Classic | Classic Era |
-|---|---|---|---|
-| Standings, Blizzard grouping | yes | yes | yes |
-| Friendships | yes | yes (Tillers & co.) | no such system |
-| Renown | yes | no such system | no such system |
-| Paragon | yes | no such system | no such system |
-| Account-wide flag | yes | no | no |
+| | Midnight | Forever | Mists Classic | Classic Era |
+|---|---|---|---|---|
+| Standings, Blizzard grouping | yes | yes | yes | yes |
+| Friendships | yes | where the game has them | yes (Tillers & co.) | no such system |
+| Renown | yes | where the game has them | no such system | no such system |
+| Paragon | yes | where the game has them | no such system | no such system |
+| Account-wide flag | yes | yes | no | no |
 
-Every flavor difference lives in `Core/Compat.lua`. Retail reads the faction list
-through `C_Reputation` (tables), Classic through the older globals (tuples).
+Every flavor difference lives in `Core/Compat.lua`. Retail and Forever read the
+faction list through `C_Reputation` (tables), Classic through the older globals
+(tuples). Forever (`Favorkeeper_Camelot.toc`, interface 16001) runs the retail code
+paths: its client has the same `C_Reputation`, `C_MajorFactions` and `C_GossipInfo`
+functions.
 
 ## Building and installing
 `Makefile` (GNU make) and `Makefile.bat` (plain Windows batch) expose the same
 targets. The WoW folder is found through `WOW_RETAIL_ADDON_FOLDER`, `WOW_DIR` or
-auto-detection; pick another client with `FLAVOR=_classic_` (Mists) or
-`FLAVOR=_classic_era_` (Vanilla).
+auto-detection; `make install-forever` installs into Forever; pick another client with `FLAVOR=_forever_` (Forever),
+`FLAVOR=_classic_` (Mists) or `FLAVOR=_classic_era_` (Vanilla).
 
 | target | what it does |
 |---|---|
-| `lint` | `check` + `check-tocs` + `check-compendium` + `luacheck`; **any warning fails** |
+| `lint` | `check` + `check-tocs` + `check-compendium` + `luacheck` + `ruff`; **any warning fails** |
 | `check` | syntax-check every Lua file |
-| `check-tocs` | the three flavor TOCs may differ only in `## Interface:`, and every listed file must exist |
+| `check-tocs` | the four flavor TOCs may differ only in `## Interface:`, and every listed file must exist |
 | `check-compendium` | the compendium data: known tags, readable line lengths, and the German file line for line with the English one |
 | `luacheck` | static analysis with `.luacheckrc` |
+| `store-images` | banner and avatar for the CurseForge and Wago pages into `brand/images/` (`Makefile` only, see `brand/README.md`) |
 | `test` | run `tests/*.lua` headless in [wow-ui-sim](https://github.com/Osso/wow-ui-sim) (`Makefile` only) |
 | `fetch-libs` / `libs` | download the embedded libraries from `.pkgmeta` / report which are missing; `install`, `debug`, `stage`, `dist` and `test` fetch missing ones on their own |
 | `debug` | link the working copy into the client (symlinks, junctions on Windows): edit, `/reload`, done |
@@ -138,6 +143,7 @@ UI/        Bars (bar widget, text, tooltip), Tracker (bar window),
 Skin/      ElvUI integration
 Locales/   Locale (runtime), enUS, deDE
 design/    spec, release notes, icon source (not shipped, not on GitHub)
+brand/     CurseForge and Wago: page text, fields, banner, avatar (not shipped, not on GitHub)
 tools/     check-compendium.lua, run by `make lint` (not shipped)
 tests/     wow-ui-sim tests (not shipped, not on GitHub)
 ```

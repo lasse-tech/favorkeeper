@@ -11,8 +11,8 @@ if not defined FLAVOR set "FLAVOR=_retail_"
 
 set "INSTALL_DIRS=Core UI Data Locales Skin Media"
 rem One folder serves every flavor: the client picks the TOC whose suffix matches,
-rem so all three ship together and the version comes from the canonical one.
-set "TOCS=%ADDON%_Mainline.toc %ADDON%_Mists.toc %ADDON%_Vanilla.toc"
+rem so all four ship together and the version comes from the canonical one.
+set "TOCS=%ADDON%_Mainline.toc %ADDON%_Camelot.toc %ADDON%_Mists.toc %ADDON%_Vanilla.toc"
 set "INSTALL_FILES=%TOCS% embeds.xml Bindings.xml CHANGELOG.md LICENSE"
 set "KEEP_LIBS= LibStub CallbackHandler-1.0 LibDataBroker-1.1 LibDBIcon-1.0 LibElvUIPlugin-1.0 "
 
@@ -34,6 +34,8 @@ if /i "%TARGET_NAME%"=="luacheck"   goto :luacheck
 if /i "%TARGET_NAME%"=="debug"      goto :debug
 if /i "%TARGET_NAME%"=="install"    goto :install
 if /i "%TARGET_NAME%"=="uninstall"  goto :uninstall
+if /i "%TARGET_NAME%"=="install-forever"   goto :installforever
+if /i "%TARGET_NAME%"=="uninstall-forever" goto :uninstallforever
 if /i "%TARGET_NAME%"=="prune-libs" goto :prunelibs
 if /i "%TARGET_NAME%"=="stage"      goto :stage
 if /i "%TARGET_NAME%"=="dist"       goto :dist
@@ -56,6 +58,8 @@ echo   Makefile fetch-libs   download them into Libs\ ^(needs svn, and git for o
 echo   Makefile debug        link the working copy into the live client ^(edit, then /reload^)
 echo   Makefile install      copy the addon into the live WoW client
 echo   Makefile uninstall    remove it again ^(SavedVariables are kept^)
+echo   Makefile install-forever    install into the Forever client
+echo   Makefile uninstall-forever  remove it from the Forever client
 echo   Makefile prune-libs   drop installed libraries embeds.xml no longer lists
 echo   Makefile stage        build dist\^<expansion^>\%ADDON%, ready to copy over
 echo   Makefile dist         build dist\%ADDON%-%VERSION%.zip
@@ -67,7 +71,7 @@ echo   Makefile check-compendium  verify the compendium data and its translation
 echo   Makefile lint         check + check-tocs + check-compendium + luacheck ^(any warning fails^)
 echo   Makefile deploy       explains how releases are published ^(tag push^)
 echo.
-echo   set FLAVOR=_classic_    for Mists Classic, _classic_era_ for Vanilla
+echo   set FLAVOR=_forever_    for Forever, _classic_ for Mists Classic, _classic_era_ for Vanilla
 echo   set WOW_RETAIL_ADDON_FOLDER=D:\World of Warcraft\_retail_\Interface\AddOns
 echo                              to install straight into that folder ^(retail only^)
 echo   set WOW_DIR=D:\World of Warcraft   to override auto-detection
@@ -228,7 +232,7 @@ goto :eof
 
 rem ----------------------------------------------------------------- check-tocs
 
-rem The flavor TOCs carry the same file list three times over, so drift is the one
+rem The flavor TOCs carry the same file list four times over, so drift is the one
 rem way this layout can rot. Compare everything but the Interface line.
 :checktocs
 set "REF="
@@ -248,7 +252,7 @@ for %%t in (%TOCS%) do (
 )
 for %%t in (%TOCS%) do del "%TEMP%\tm_%%t.txt" >nul 2>&1
 if "!FAIL!"=="1" exit /b 1
-echo tocs: 3 flavors agree
+echo tocs: 4 flavors agree
 
 set "MISSINGFILE=0"
 for /f "usebackq delims=" %%f in ("%ROOT%\%ADDON%_Mainline.toc") do (
@@ -415,6 +419,14 @@ goto :eof
 
 rem ------------------------------------------------------------------ uninstall
 
+:installforever
+set "FLAVOR=_forever_"
+goto :install
+
+:uninstallforever
+set "FLAVOR=_forever_"
+goto :uninstall
+
 :uninstall
 call :findwow || exit /b 1
 call :unlinkdebug
@@ -449,7 +461,7 @@ rem ---------------------------------------------------------------------- stage
 :stage
 call :ensurelibs || exit /b 1
 rem Expansion, its TOC suffix, and the client folder it belongs in.
-for %%p in ("Midnight:Mainline:_retail_" "Mists:Mists:_classic_" "Vanilla:Vanilla:_classic_era_") do (
+for %%p in ("Midnight:Mainline:_retail_" "Forever:Camelot:_forever_" "Mists:Mists:_classic_" "Vanilla:Vanilla:_classic_era_") do (
     for /f "tokens=1,2,3 delims=:" %%a in (%%p) do (
         set "OUT=%DIST%\%%a\%ADDON%"
         if exist "%DIST%\%%a" rmdir /s /q "%DIST%\%%a"

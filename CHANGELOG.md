@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-06
+
+### Added
+- `make install-forever` and `make uninstall-forever` install into and remove from the Forever client
+- World of Warcraft: Forever: `Favorkeeper_Camelot.toc` (interface 16001); Forever
+  uses the retail reputation API
+
+### Changed
+- Retail interface 120105 (12.1.5)
+
 ## [0.1.1] - 2026-10-31
 
 ### Added

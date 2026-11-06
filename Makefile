@@ -2,8 +2,8 @@ ADDON       := Favorkeeper
 FLAVOR      ?= _retail_
 
 # One folder serves every flavor: the client picks the TOC whose suffix matches,
-# so all three ship together and the version is read from whichever is canonical.
-TOCS        := $(ADDON)_Mainline.toc $(ADDON)_Mists.toc $(ADDON)_Vanilla.toc
+# so all four ship together and the version is read from whichever is canonical.
+TOCS        := $(ADDON)_Mainline.toc $(ADDON)_Camelot.toc $(ADDON)_Mists.toc $(ADDON)_Vanilla.toc
 VERSION     := $(shell sed -n 's/^## Version: //p' $(ADDON)_Mainline.toc)
 
 INSTALL_FILES := $(TOCS) embeds.xml Bindings.xml CHANGELOG.md LICENSE
@@ -56,15 +56,17 @@ NO_ADDONS_MSG = echo "AddOns folder not found. Set WOW_RETAIL_ADDON_FOLDER=/path
 .DEFAULT_GOAL := help
 # Expansion -> (TOC suffix, client folder). "stage" builds one ready-to-copy folder
 # per expansion under dist/, each carrying only the TOC that expansion loads.
-FLAVOR_NAMES := Midnight Mists Vanilla
+FLAVOR_NAMES := Midnight Forever Mists Vanilla
 FLAVOR_TOC_Midnight := Mainline
+FLAVOR_TOC_Forever  := Camelot
 FLAVOR_TOC_Mists    := Mists
 FLAVOR_TOC_Vanilla  := Vanilla
 FLAVOR_DIR_Midnight := _retail_
+FLAVOR_DIR_Forever  := _forever_
 FLAVOR_DIR_Mists    := _classic_
 FLAVOR_DIR_Vanilla  := _classic_era_
 
-.PHONY: help version check check-tocs check-compendium luacheck lint test libs fetch-libs ensure-libs debug install uninstall prune-libs stage dist deploy release public github clean distclean purge
+.PHONY: help version check check-tocs check-compendium luacheck ruff lint store-images test libs fetch-libs ensure-libs debug install uninstall install-forever uninstall-forever prune-libs stage dist deploy release public github clean distclean purge
 
 help:
 	@echo "$(ADDON) $(VERSION)"
@@ -77,20 +79,23 @@ help:
 	@echo "  make debug        link the working copy into the live client (edit, then /reload)"
 	@echo "  make install      copy the addon into the live WoW client"
 	@echo "  make uninstall    remove it again (SavedVariables are kept)"
+	@echo "  make install-forever    install into the Forever client"
+	@echo "  make uninstall-forever  remove it from the Forever client"
 	@echo "  make prune-libs   drop installed libraries embeds.xml no longer lists"
 	@echo "  make stage        build dist/<expansion>/$(ADDON), ready to copy over"
 	@echo "  make dist         build $(ZIP)"
 	@echo "  make clean        remove build output"
 	@echo "  make distclean    clean + empty Libs/"
 	@echo "  make purge        uninstall + delete SavedVariables (needs CONFIRM=yes)"
-	@echo "  make lint         check + check-tocs + check-compendium + luacheck (any warning fails)"
+	@echo "  make lint         check + check-tocs + check-compendium + luacheck + ruff (any warning fails)"
 	@echo "  make deploy       explains how releases are published (tag push)"
 	@echo "  make release      print the commands that tag v$(VERSION) and push it to Forgejo"
 	@echo "  make public       build the public export of HEAD into $(PUBLIC_DIR)"
 	@echo "  make github       export TAG=$(TAG) to GitHub as one commit (DRY_RUN=1: push nothing)"
 	@echo "  make test         run tests/ in wow-ui-sim (WOW_UI_SIM=$(WOW_UI_SIM))"
+	@echo "  make store-images render brand/images/ (banner, avatar) for CurseForge and Wago"
 	@echo ""
-	@echo "  FLAVOR=$(FLAVOR)   _retail_ (Midnight), _classic_ (Mists), _classic_era_ (Vanilla)"
+	@echo "  FLAVOR=$(FLAVOR)   _retail_ (Midnight), _forever_ (Forever), _classic_ (Mists), _classic_era_ (Vanilla)"
 	@echo "  WOW_RETAIL_ADDON_FOLDER  Interface/AddOns to install into (retail only)"
 	@echo "  WOW_DIR           override the auto-detected WoW folder"
 
@@ -110,7 +115,7 @@ check:
 		echo "no Lua available (install lua/luac, or 'pip install lupa') - skipped"; \
 	fi
 
-# The flavor TOCs carry the same file list three times over, so drift is the one
+# The flavor TOCs carry the same file list four times over, so drift is the one
 # way this layout can rot. Compare everything but the Interface line.
 check-tocs:
 	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
@@ -145,7 +150,16 @@ luacheck:
 	@command -v luacheck >/dev/null 2>&1 || { echo "luacheck not found - install it (luarocks install luacheck)"; exit 1; }
 	@luacheck --no-color -q . && echo "luacheck: no warnings"
 
-lint: check check-tocs check-compendium luacheck
+# brand/source holds the store image generator; ruff findings fail like luacheck warnings.
+ruff:
+	ruff check brand/source
+	ruff format --check brand/source
+
+lint: check check-tocs check-compendium luacheck ruff
+
+# Banner and avatar for the CurseForge and Wago pages, from the icon SVG (brand/README.md).
+store-images:
+	python3 brand/source/store_images.py
 
 libs:
 	@missing=0; \
@@ -244,6 +258,12 @@ debug: ensure-libs
 	for f in $(INSTALL_FILES); do rm -f "$$target/$$f"; ln -s "$(CURDIR)/$$f" "$$target/$$f"; done; \
 	rm -rf "$$target/Libs"; mkdir -p "$$target/Libs"; cp -r Libs/. "$$target/Libs/"; rm -f "$$target/Libs/README.md"; \
 	echo "done - /reload in game after each edit"
+
+install-forever:
+	@$(MAKE) --no-print-directory install FLAVOR=_forever_
+
+uninstall-forever:
+	@$(MAKE) --no-print-directory uninstall FLAVOR=_forever_
 
 uninstall:
 	@addons=$$($(FIND_ADDONS)); \
