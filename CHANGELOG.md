@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-06
+
+### Added
+- On CurseForge and Wago: every release goes to both
+
+### Fixed
+- Releases reach CurseForge: the packager uploads there itself, like to Wago
+
 ## [0.2.0] - 2026-11-06
 
 ### Added
